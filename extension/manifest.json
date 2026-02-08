@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "GitHub Context Copilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Context-aware helper for GitHub Issues.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": ["https://github.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "GitHub Copilot"
   },
   "content_scripts": [
