@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GitHub Copilot Demo</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h2>GitHub Copilot</h2>
+
+    <div class="row">
+      <button id="btnContext">Load page context</button>
+      <span id="status"></span>
+    </div>
+
+    <textarea id="question" placeholder="Ask something... e.g. Summarize and propose next steps"></textarea>
+
+    <div class="row">
+      <button id="btnAsk">Ask</button>
+    </div>
+
+    <pre id="answer"></pre>
+
+    <details>
+      <summary>Debug: context JSON</summary>
+      <pre id="debug"></pre>
+    </details>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
