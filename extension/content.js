@@ -85,7 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // ===== Sidebar Copilot (new) =====
-const N8N_WEBHOOK_URL = "http://localhost:5678/webhook-test/github-copilot-query";
+const N8N_WEBHOOK_URL = "https://n8n-demo.politesea-333c286c.westeurope.azurecontainerapps.io/webhook/github-copilot-query";
 
 const SIDEBAR_ID = "gh-copilot-sidebar";
 const STYLE_ID = "gh-copilot-style";
@@ -122,7 +122,7 @@ function ensureStyles() {
     #${SIDEBAR_ID} .msg.user{ background:#f6f8fa; align-self:flex-end; max-width:95%; }
     #${SIDEBAR_ID} .msg.assistant{ background:white; align-self:flex-start; max-width:95%; }
     #${SIDEBAR_ID} .composer{
-      padding:10px; border-top:1px solid #eee; display:flex; gap:8px; align-items:center;
+      padding:0px 10px 0px 10px; border-top:1px solid #eee; display:flex; gap:8px; align-items:center;
     }
     #${SIDEBAR_ID} input{
       flex:1; padding:10px; border-radius:10px; border:1px solid #d0d7de;
@@ -279,11 +279,14 @@ function ensureSidebar() {
   refreshMeta();
 }
 
-// Create sidebar once
-ensureSidebar();
+// ---- one-time init guard ----
+if (!window.__GH_COPILOT_LOADED__) {
+  window.__GH_COPILOT_LOADED__ = true;
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "TOGGLE_SIDEBAR") {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type !== "TOGGLE_SIDEBAR") return;
+
+    // Create UI only when needed
     ensureSidebar();
 
     const sidebar = document.getElementById(SIDEBAR_ID);
@@ -291,16 +294,12 @@ chrome.runtime.onMessage.addListener((msg) => {
 
     const input = sidebar.querySelector("#gh-copilot-input");
 
-    // Use computed style (reliable)
-    const computedDisplay = window.getComputedStyle(sidebar).display;
-    const isOpen = computedDisplay !== "none";
-
-    // Toggle deterministically
+    const isOpen = window.getComputedStyle(sidebar).display !== "none";
     sidebar.style.display = isOpen ? "none" : "block";
 
     if (!isOpen) {
-      // Focus input after the sidebar is visible
+      // focus next tick
       setTimeout(() => input?.focus(), 0);
     }
-  }
-});
+  });
+}
