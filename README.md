@@ -1,41 +1,40 @@
 Demo project:
 
-Browser (GitHub Issue Page)
-│
-│  Content Script (JavaScript)
-│  - Injected sidebar chat UI
-│  - Extracts structured page context
-│  - Captures user intent
-│
-▼
-HTTPS (JSON)
-│
-│  FAST / API Boundary
-│  - Webhook-style request/response
-│  - Strict JSON contract
-│
-▼
-Azure Container Apps
-│
-│  n8n (Workflow Orchestration)
-│  - Webhook trigger
-│  - Context shaping (JS Function nodes)
-│  - Prompt construction
-│  - OpenAI API call
-│  - Response normalization
-│
-▼
-Azure PostgreSQL Flexible Server
-│
-│  - n8n workflows & execution state
-│  - Encrypted credentials
-│
-▼
-Response
-│
-│  Structured JSON:
-│  { answerMarkdown, suggestedActions, confidence }
-│
-▼
-Browser Sidebar UI
-
+Browser (GitHub Issue Page) <br/>
+│<br/>
+│  Content Script (JavaScript)<br/>
+│  - Injected sidebar chat UI<br/>
+│  - Extracts structured page context<br/>
+│  - Captures user intent<br/>
+│<br/>
+▼<br/>
+HTTPS (JSON)<br/>
+│<br/>
+│  FAST / API Boundary<br/>
+│  - Webhook-style request/response<br/>
+│  - Strict JSON contract<br/>
+│<br/>
+▼<br/>
+Azure Container Apps<br/>
+│<br/>
+│  n8n (Workflow Orchestration)<br/>
+│  - Webhook trigger<br/>
+│  - Context shaping (JS Function nodes)<br/>
+│  - Prompt construction<br/>
+│  - OpenAI API call<br/>
+│  - Response normalization<br/>
+│<br/>
+▼<br/>
+Azure PostgreSQL Flexible Server<br/>
+│<br/>
+│  - n8n workflows & execution state<br/>
+│  - Encrypted credentials<br/>
+│<br/>
+▼<br/>
+Response<br/>
+│<br/>
+│  Structured JSON:<br/>
+│  { answerMarkdown, suggestedActions, confidence }<br/>
+│<br/>
+▼<br/>
+Browser Sidebar UI<br/>
