@@ -1,0 +1,393 @@
+{
+  "name": "Github copilot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "github-copilot-query",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        -128
+      ],
+      "id": "c4ea7d16-4ea4-4f44-8cbc-16c1abd445c5",
+      "name": "Webhook",
+      "webhookId": "e4d45d28-eecd-4b96-ad77-4612981854c1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-5-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 800,
+          "reasoning": {
+            "reasoningOptions": {
+              "effort": "low"
+            }
+          },
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        288,
+        -224
+      ],
+      "id": "bb715c08-6ee4-4b30-ac7a-85b022a7dbef",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "htPQUnSq6incKuy2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        -128
+      ],
+      "id": "e5582841-2bd8-43c1-aca0-3b87bd40299e",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.first().json.body;\n\nconst context = {\n  url: payload.url,\n  repo: payload.repo,\n  issueNumber: payload.issueNumber,\n  title: payload.title,\n  bodyText: payload.bodyText,\n  labels: payload.uiState?.labels || [],\n  assignees: payload.uiState?.assignees || [],\n  comments: (payload.comments || []).map(c => c.text).slice(0, 5),\n};\n\nconst question = payload.userIntent?.question || \"Summarize and propose next steps.\";\n\nreturn [{\n  prompt: `\nRules:\n- answerMarkdown <= 600 chars\n- If missing info, ask ONE follow-up question and set confidence <= 0.5\n- suggestedActions: safe suggestions only (draft text, label suggestions). No execution.\n- Return at most 2 suggestedActions.\n- Use keys exactly: answerMarkdown, suggestedActions, confidence, followUpQuestion.\n- Do not use replyMarkdown or message.\n\nContext JSON:\n${JSON.stringify(context)}\n\nQuestion: ${question}\n`.trim()\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -176
+      ],
+      "id": "40a39210-bb95-4786-9e59-116556109a60",
+      "name": "Prompt constructor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parser that supports two incoming items:\n// - one with OpenAI \"output\"\n// - one with Webhook \"body\" (repo/url/issueNumber/userIntent) + _log.startedAt\n\nconst items = $input.all().map(i => i.json);\n\n// Find OpenAI item (has output array)\nconst aiItem = items.find(x => Array.isArray(x?.output)) || items[0];\n\n// Find webhook/context item (has body.repo etc.)\nconst ctxItem = items.find(x => x?.body?.repo) || items.find(x => x?.body) || items[0];\n\nconst obj = aiItem?.output?.[0]?.content?.[0]?.text;\n\n// Pull context from ctxItem.body\nconst body = ctxItem?.body || {};\nconst repo = body.repo || \"\";\nconst issueNumber = body.issueNumber || \"\";\nconst url = body.url || \"\";\nconst question = body?.userIntent?.question || \"\";\n\n// Latency if you have startedAt\nconst startedAt = ctxItem?._log?.startedAt;\nconst latencyMs = (typeof startedAt === \"number\") ? (Date.now() - startedAt) : null;\n\nif (!obj || typeof obj !== \"object\") {\n  return [{\n    json: {\n      timestamp: new Date().toISOString(),\n      repo, issueNumber, url, question,\n      answerMarkdown: \"No structured response received from the model.\",\n      suggestedActions: [],\n      confidence: 0.2,\n      success: false,\n      latencyMs,\n      error: \"missing_structured_text_object\"\n    }\n  }];\n}\n\n// Answer text: accept multiple key names\nconst answerMarkdown =\n  (typeof obj.answerMarkdown === \"string\" && obj.answerMarkdown.trim()) ? obj.answerMarkdown :\n  (typeof obj.replyMarkdown === \"string\" && obj.replyMarkdown.trim()) ? obj.replyMarkdown :\n  (typeof obj.message === \"string\" && obj.message.trim()) ? obj.message :\n  \"No answer.\";\n\nconst confidence =\n  (typeof obj.confidence === \"number\")\n    ? Math.max(0, Math.min(1, obj.confidence))\n    : 0.6;\n\n// Normalize actions into {id,label,payload}\nconst rawActions = Array.isArray(obj.suggestedActions) ? obj.suggestedActions : [];\n\nconst suggestedActions = rawActions.map((a, idx) => {\n  const id = a?.id || `${a?.actionType || a?.type || \"action\"}_${idx + 1}`;\n  const label =\n    a?.label ||\n    a?.title ||\n    a?.actionType ||\n    a?.type ||\n    `Action ${idx + 1}`;\n\n  // If model returns {actionType,text} treat as a \"draft/copy\" payload\n  if (a && typeof a === \"object\" && !a.payload) {\n    return {\n      id,\n      label,\n      payload: { ...a } // keeps actionType/text etc\n    };\n  }\n\n  const payload =\n    a?.payload && typeof a.payload === \"object\" ? a.payload :\n    (a && typeof a === \"object\" ? a : { value: a });\n\n  return { id, label, payload };\n});\n\n// Append follow-up question\nlet finalMarkdown = answerMarkdown;\nif (typeof obj.followUpQuestion === \"string\" && obj.followUpQuestion.trim()) {\n  finalMarkdown += `\\n\\n**Follow-up:** ${obj.followUpQuestion.trim()}`;\n}\n\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    repo, issueNumber, url, question,\n    answerMarkdown: finalMarkdown,\n    suggestedActions,\n    confidence,\n    latencyMs,\n    success: true\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -128
+      ],
+      "id": "e3d725e0-d505-4f7b-9310-8088c158be0f",
+      "name": "JSON parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize logging context\nreturn [{\n  json: {\n    ...$json,\n    _log: {\n      startedAt: Date.now(),\n      repo: $json.repo,\n      issueNumber: $json.issueNumber,\n      question: $json.userIntent?.question || \"\",\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        16
+      ],
+      "id": "82d24a73-5a77-458e-87f4-1e4a0601405f",
+      "name": "Init log"
+    },
+    {
+      "parameters": {
+        "jsCode": "const startedAt = $json._log?.startedAt || Date.now();\nconst latencyMs = Date.now() - startedAt;\n\nreturn [{\n  json: {\n    ...$json,\n    logEntry: {\n      timestamp: new Date().toISOString(),\n      repo: $json._log?.repo,\n      issueNumber: $json._log?.issueNumber,\n      question: $json._log?.question,\n      confidence: $json.confidence,\n      latencyMs,\n      success: true\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        32
+      ],
+      "id": "b9682fb6-3c42-49c9-be5e-ec6f73a4292d",
+      "name": "Finalize log"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1_jILm6NcID9jFDsBO6ZgbCEj_7FXJAJ2DpbwAnR7FPk",
+          "mode": "list",
+          "cachedResultName": "Copilot logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1_jILm6NcID9jFDsBO6ZgbCEj_7FXJAJ2DpbwAnR7FPk/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1_jILm6NcID9jFDsBO6ZgbCEj_7FXJAJ2DpbwAnR7FPk/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "repo ": "={{ $json.repo }}",
+            "issueNumber ": "={{ $json.issueNumber }}",
+            "question": "={{ $json.question }}",
+            "confidence ": "={{ $json.confidence }}",
+            "latencyMs": "={{ $json.logEntry.latencyMs }}",
+            "success": "={{ $json.logEntry.success }}",
+            "answerPreview": "={{ ($json.answerMarkdown || \"\").slice(0, 200) }}",
+            "acionsJson": "={{ JSON.stringify($json.suggestedActions || []) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "repo ",
+              "displayName": "repo ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "issueNumber ",
+              "displayName": "issueNumber ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "confidence ",
+              "displayName": "confidence ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "latencyMs",
+              "displayName": "latencyMs",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "answerPreview",
+              "displayName": "answerPreview",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "acionsJson",
+              "displayName": "acionsJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1136,
+        160
+      ],
+      "id": "cd381dfa-f907-497e-9a63-c5d27c5bea8e",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "gP8EZF7fUVbU4W24",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        592,
+        -16
+      ],
+      "id": "e947d2b7-b7f6-4668-a86a-012a5aafc1b1",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Init log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt constructor": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON parser": {
+      "main": [
+        [
+          {
+            "node": "Finalize log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init log": {
+      "main": [
+        [
+          {
+            "node": "Prompt constructor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Finalize log": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "JSON parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "XfuSGatu_K_pY7dcIFObZ"
+  },
+  "versionId": "c281d08f-66fd-453e-a60c-ebc0a1aa6178",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e5f846b4cfe940119433e72a04731db040592eed56a5b23d3e8e007bf656654b"
+  },
+  "id": "CknroEiD45GB-lW1fGLQY",
+  "tags": []
+}

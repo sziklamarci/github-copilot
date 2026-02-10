@@ -31,10 +31,11 @@ Azure PostgreSQL Flexible Server<br/>
 │  - Encrypted credentials<br/>
 │<br/>
 ▼<br/>
-Response<br/>
+Response and logging<br/>
 │<br/>
-│  Structured JSON:<br/>
+│  - Structured JSON:<br/>
 │  { answerMarkdown, suggestedActions, confidence }<br/>
+|  - Log creation via GCP Google Sheets API node.
 │<br/>
 ▼<br/>
 Browser Sidebar UI<br/>
