@@ -11,8 +11,8 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -160,
-        -128
+        -208,
+        0
       ],
       "id": "c4ea7d16-4ea4-4f44-8cbc-16c1abd445c5",
       "name": "Webhook",
@@ -84,23 +84,10 @@
       "typeVersion": 2,
       "position": [
         128,
-        -176
+        -224
       ],
       "id": "40a39210-bb95-4786-9e59-116556109a60",
       "name": "Prompt constructor"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Parser that supports two incoming items:\n// - one with OpenAI \"output\"\n// - one with Webhook \"body\" (repo/url/issueNumber/userIntent) + _log.startedAt\n\nconst items = $input.all().map(i => i.json);\n\n// Find OpenAI item (has output array)\nconst aiItem = items.find(x => Array.isArray(x?.output)) || items[0];\n\n// Find webhook/context item (has body.repo etc.)\nconst ctxItem = items.find(x => x?.body?.repo) || items.find(x => x?.body) || items[0];\n\nconst obj = aiItem?.output?.[0]?.content?.[0]?.text;\n\n// Pull context from ctxItem.body\nconst body = ctxItem?.body || {};\nconst repo = body.repo || \"\";\nconst issueNumber = body.issueNumber || \"\";\nconst url = body.url || \"\";\nconst question = body?.userIntent?.question || \"\";\n\n// Latency if you have startedAt\nconst startedAt = ctxItem?._log?.startedAt;\nconst latencyMs = (typeof startedAt === \"number\") ? (Date.now() - startedAt) : null;\n\nif (!obj || typeof obj !== \"object\") {\n  return [{\n    json: {\n      timestamp: new Date().toISOString(),\n      repo, issueNumber, url, question,\n      answerMarkdown: \"No structured response received from the model.\",\n      suggestedActions: [],\n      confidence: 0.2,\n      success: false,\n      latencyMs,\n      error: \"missing_structured_text_object\"\n    }\n  }];\n}\n\n// Answer text: accept multiple key names\nconst answerMarkdown =\n  (typeof obj.answerMarkdown === \"string\" && obj.answerMarkdown.trim()) ? obj.answerMarkdown :\n  (typeof obj.replyMarkdown === \"string\" && obj.replyMarkdown.trim()) ? obj.replyMarkdown :\n  (typeof obj.message === \"string\" && obj.message.trim()) ? obj.message :\n  \"No answer.\";\n\nconst confidence =\n  (typeof obj.confidence === \"number\")\n    ? Math.max(0, Math.min(1, obj.confidence))\n    : 0.6;\n\n// Normalize actions into {id,label,payload}\nconst rawActions = Array.isArray(obj.suggestedActions) ? obj.suggestedActions : [];\n\nconst suggestedActions = rawActions.map((a, idx) => {\n  const id = a?.id || `${a?.actionType || a?.type || \"action\"}_${idx + 1}`;\n  const label =\n    a?.label ||\n    a?.title ||\n    a?.actionType ||\n    a?.type ||\n    `Action ${idx + 1}`;\n\n  // If model returns {actionType,text} treat as a \"draft/copy\" payload\n  if (a && typeof a === \"object\" && !a.payload) {\n    return {\n      id,\n      label,\n      payload: { ...a } // keeps actionType/text etc\n    };\n  }\n\n  const payload =\n    a?.payload && typeof a.payload === \"object\" ? a.payload :\n    (a && typeof a === \"object\" ? a : { value: a });\n\n  return { id, label, payload };\n});\n\n// Append follow-up question\nlet finalMarkdown = answerMarkdown;\nif (typeof obj.followUpQuestion === \"string\" && obj.followUpQuestion.trim()) {\n  finalMarkdown += `\\n\\n**Follow-up:** ${obj.followUpQuestion.trim()}`;\n}\n\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    repo, issueNumber, url, question,\n    answerMarkdown: finalMarkdown,\n    suggestedActions,\n    confidence,\n    latencyMs,\n    success: true\n  }\n}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        768,
-        -128
-      ],
-      "id": "e3d725e0-d505-4f7b-9310-8088c158be0f",
-      "name": "JSON parser"
     },
     {
       "parameters": {
@@ -109,21 +96,21 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        16,
-        16
+        0,
+        0
       ],
       "id": "82d24a73-5a77-458e-87f4-1e4a0601405f",
       "name": "Init log"
     },
     {
       "parameters": {
-        "jsCode": "const startedAt = $json._log?.startedAt || Date.now();\nconst latencyMs = Date.now() - startedAt;\n\nreturn [{\n  json: {\n    ...$json,\n    logEntry: {\n      timestamp: new Date().toISOString(),\n      repo: $json._log?.repo,\n      issueNumber: $json._log?.issueNumber,\n      question: $json._log?.question,\n      confidence: $json.confidence,\n      latencyMs,\n      success: true\n    }\n  }\n}];\n"
+        "jsCode": "// Merged Parser + Log Finalizer\n// Inputs: typically 2 items:\n// 1) OpenAI node output item (has .output[0].content[0].text object)\n// 2) Context item from webhook flow (has .body + optional ._log.startedAt etc.)\n\nconst items = $input.all().map(i => i.json);\n\n// Find OpenAI item (has output array)\nconst aiItem = items.find(x => Array.isArray(x?.output)) || items[0];\n\n// Find context item (has body)\nconst ctxItem =\n  items.find(x => x?.body?.repo) ||\n  items.find(x => x?.body) ||\n  items[0];\n\nconst obj = aiItem?.output?.[0]?.content?.[0]?.text;\n\n// Pull context from ctxItem.body\nconst body = ctxItem?.body || {};\nconst repo = body.repo || \"\";\nconst issueNumber = body.issueNumber || \"\";\nconst url = body.url || \"\";\nconst question = body?.userIntent?.question || \"\";\n\n// Latency\nconst startedAt = ctxItem?._log?.startedAt;\nconst latencyMs = (typeof startedAt === \"number\") ? (Date.now() - startedAt) : null;\n\n// Helper: clamp confidence\nfunction clamp01(n) {\n  return Math.max(0, Math.min(1, n));\n}\n\n// Error case: missing structured obj\nif (!obj || typeof obj !== \"object\") {\n  const out = {\n    timestamp: new Date().toISOString(),\n    repo, issueNumber, url, question,\n    answerMarkdown: \"No structured response received from the model.\",\n    suggestedActions: [],\n    confidence: 0.2,\n    latencyMs,\n    success: false,\n    error: \"missing_structured_text_object\"\n  };\n\n  return [{\n    json: {\n      ...out,\n      // logEntry for logging node (file/sheet/etc.)\n      logEntry: {\n        timestamp: out.timestamp,\n        repo,\n        issueNumber,\n        question,\n        confidence: out.confidence,\n        latencyMs,\n        success: false,\n        error: out.error\n      }\n    }\n  }];\n}\n\n// Answer text: accept multiple key names\nconst answerMarkdown =\n  (typeof obj.answerMarkdown === \"string\" && obj.answerMarkdown.trim()) ? obj.answerMarkdown :\n  (typeof obj.replyMarkdown === \"string\" && obj.replyMarkdown.trim()) ? obj.replyMarkdown :\n  (typeof obj.message === \"string\" && obj.message.trim()) ? obj.message :\n  \"No answer.\";\n\nconst confidence =\n  (typeof obj.confidence === \"number\") ? clamp01(obj.confidence) : 0.6;\n\n// Normalize actions into {id,label,payload}\nconst rawActions = Array.isArray(obj.suggestedActions) ? obj.suggestedActions : [];\n\nconst suggestedActions = rawActions.map((a, idx) => {\n  const id = a?.id || `${a?.actionType || a?.type || \"action\"}_${idx + 1}`;\n  const label =\n    a?.label ||\n    a?.title ||\n    a?.actionType ||\n    a?.type ||\n    `Action ${idx + 1}`;\n\n  // If model returns an object without nested payload, treat whole action object as payload\n  if (a && typeof a === \"object\" && !a.payload) {\n    return {\n      id,\n      label,\n      payload: { ...a }\n    };\n  }\n\n  const payload =\n    (a?.payload && typeof a.payload === \"object\") ? a.payload :\n    (a && typeof a === \"object\" ? a : { value: a });\n\n  return { id, label, payload };\n});\n\n// Append follow-up question\nlet finalMarkdown = answerMarkdown;\nif (typeof obj.followUpQuestion === \"string\" && obj.followUpQuestion.trim()) {\n  finalMarkdown += `\\n\\n**Follow-up:** ${obj.followUpQuestion.trim()}`;\n}\n\n// Final output object (what your extension consumes)\nconst timestamp = new Date().toISOString();\nconst out = {\n  timestamp,\n  repo, issueNumber, url, question,\n  answerMarkdown: finalMarkdown,\n  suggestedActions,\n  confidence,\n  latencyMs,\n  success: true\n};\n\n// logEntry (what your logging sink consumes)\nconst logEntry = {\n  timestamp,\n  // Prefer _log fields if present, but fall back to parsed context\n  repo: ctxItem?._log?.repo ?? repo,\n  issueNumber: ctxItem?._log?.issueNumber ?? issueNumber,\n  question: ctxItem?._log?.question ?? question,\n  confidence,\n  latencyMs: latencyMs ?? (ctxItem?._log?.startedAt ? (Date.now() - ctxItem._log.startedAt) : null),\n  success: true\n};\n\nreturn [{\n  json: {\n    ...out,\n    logEntry\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        944,
-        32
+        816,
+        -16
       ],
       "id": "b9682fb6-3c42-49c9-be5e-ec6f73a4292d",
       "name": "Finalize log"
@@ -260,7 +247,7 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        1136,
+        1120,
         160
       ],
       "id": "cd381dfa-f907-497e-9a63-c5d27c5bea8e",
@@ -319,17 +306,6 @@
         ]
       ]
     },
-    "JSON parser": {
-      "main": [
-        [
-          {
-            "node": "Finalize log",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Init log": {
       "main": [
         [
@@ -366,7 +342,7 @@
       "main": [
         [
           {
-            "node": "JSON parser",
+            "node": "Finalize log",
             "type": "main",
             "index": 0
           }
@@ -383,7 +359,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "errorWorkflow": "XfuSGatu_K_pY7dcIFObZ"
   },
-  "versionId": "c281d08f-66fd-453e-a60c-ebc0a1aa6178",
+  "versionId": "62576687-7858-45ef-b8e1-c3616f627694",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "e5f846b4cfe940119433e72a04731db040592eed56a5b23d3e8e007bf656654b"
